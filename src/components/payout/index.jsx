@@ -137,7 +137,7 @@ const PaymentForm = () => {
             <div className="form-group">
               <label>CVV</label>
               <input
-                  type="text"
+                  type="password"
                   name="cvv"
                   value={formData.cvv}
                   onChange={handleChange}
