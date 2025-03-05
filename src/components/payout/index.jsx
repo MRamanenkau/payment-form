@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './style.css';
 
 const PaymentForm = () => {
@@ -12,8 +12,43 @@ const PaymentForm = () => {
   });
 
   const [errors, setErrors] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [browserData, setBrowserData] = useState({});
+  const currencies = ['USD', 'EUR', 'GBP', 'JPY'];
 
-  const currencies = ['USD', 'EUR', 'GBP', 'JPY']; // Add more currencies as needed
+  // Collect browser data when component mounts
+  useEffect(() => {
+    const collectBrowserData = () => {
+      const data = {
+        remote_ip: 'N/A', // This would typically come from server-side
+        user_agent: navigator.userAgent,
+        accept_header: 'text/html', // You might need to get this from server-side
+        language: navigator.language || navigator.userLanguage,
+        java_enabled: false,
+        javascript_enabled: true,
+        color_depth: window.screen.colorDepth,
+        utc_offset: new Date().getTimezoneOffset(),
+        screen_width: window.screen.width,
+        screen_height: window.screen.height,
+        remember_card: 'on'
+      };
+      setBrowserData(data);
+    };
+
+    collectBrowserData();
+
+    const handleResize = () => {
+      setBrowserData(prev => ({
+        ...prev,
+        screen_width: window.screen.width,
+        screen_height: window.screen.height
+      }));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -66,10 +101,43 @@ const PaymentForm = () => {
     return Object.keys(tempErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateForm()) {
-      console.log('Payment data:', formData);
+      setIsLoading(true);
+      setSubmitError(null);
+
+      const paymentData = {
+        amount: Number(formData.amount) * 100,
+        currency: formData.currency,
+        cardholder_name: formData.cardHolder,
+        card_number: formData.cardNumber.replace(/\s/g, ''),
+        expires: formData.expiryDate,
+        cvc: formData.cvv,
+        ...browserData
+      };
+
+      try {
+        const response = await fetch('http://localhost:3000/api/payments', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(paymentData)
+        });
+
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+
+        const result = await response.json();
+        console.log('Payment successful:', result);
+      } catch (error) {
+        console.error('Payment failed:', error);
+        setSubmitError('Payment processing failed. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -77,6 +145,8 @@ const PaymentForm = () => {
       <div className="payment-form-container">
         <form onSubmit={handleSubmit} className="payment-form">
           <h2>Payment Details</h2>
+
+          {submitError && <div className="error">{submitError}</div>}
 
           <div className="form-row">
             <div className="form-group">
@@ -87,6 +157,7 @@ const PaymentForm = () => {
                   value={formData.amount}
                   onChange={handleChange}
                   placeholder="0.00"
+                  disabled={isLoading}
               />
               {errors.amount && <span className="error">{errors.amount}</span>}
             </div>
@@ -97,6 +168,7 @@ const PaymentForm = () => {
                   name="currency"
                   value={formData.currency}
                   onChange={handleChange}
+                  disabled={isLoading}
               >
                 {currencies.map((curr) => (
                     <option key={curr} value={curr}>
@@ -116,6 +188,7 @@ const PaymentForm = () => {
                 onChange={handleChange}
                 placeholder="1234 5678 9012 3456"
                 maxLength="19"
+                disabled={isLoading}
             />
             {errors.cardNumber && <span className="error">{errors.cardNumber}</span>}
           </div>
@@ -130,6 +203,7 @@ const PaymentForm = () => {
                   onChange={handleChange}
                   placeholder="MM/YY"
                   maxLength="5"
+                  disabled={isLoading}
               />
               {errors.expiryDate && <span className="error">{errors.expiryDate}</span>}
             </div>
@@ -143,6 +217,7 @@ const PaymentForm = () => {
                   onChange={handleChange}
                   placeholder="123"
                   maxLength="4"
+                  disabled={isLoading}
               />
               {errors.cvv && <span className="error">{errors.cvv}</span>}
             </div>
@@ -156,12 +231,17 @@ const PaymentForm = () => {
                 value={formData.cardHolder}
                 onChange={handleChange}
                 placeholder="John Doe"
+                disabled={isLoading}
             />
             {errors.cardHolder && <span className="error">{errors.cardHolder}</span>}
           </div>
 
-          <button type="submit" className="submit-btn">
-            Make Payment
+          <button
+              type="submit"
+              className="submit-btn"
+              disabled={isLoading}
+          >
+            {isLoading ? 'Processing...' : 'Make Payment'}
           </button>
         </form>
       </div>
