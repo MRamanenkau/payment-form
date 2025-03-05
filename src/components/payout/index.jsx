@@ -7,7 +7,7 @@ const PaymentForm = () => {
     currency: 'USD',
     cardNumber: '',
     expiryDate: '',
-    cvv: '',
+    cvc: '',
     cardHolder: ''
   });
 
@@ -17,21 +17,18 @@ const PaymentForm = () => {
   const [browserData, setBrowserData] = useState({});
   const currencies = ['USD', 'EUR', 'GBP', 'JPY'];
 
-  // Collect browser data when component mounts
   useEffect(() => {
     const collectBrowserData = () => {
       const data = {
-        remote_ip: 'N/A', // This would typically come from server-side
         user_agent: navigator.userAgent,
-        accept_header: 'text/html', // You might need to get this from server-side
-        language: navigator.language || navigator.userLanguage,
-        java_enabled: false,
+        accept_header: 'text/html',
+        language: 'en-US' || navigator.language || navigator.userLanguage,
         javascript_enabled: true,
         color_depth: window.screen.colorDepth,
         utc_offset: new Date().getTimezoneOffset(),
         screen_width: window.screen.width,
         screen_height: window.screen.height,
-        remember_card: 'on'
+        remember_card: 'off'
       };
       setBrowserData(data);
     };
@@ -71,7 +68,7 @@ const PaymentForm = () => {
           .slice(0, 5);
       setFormData({ ...formData, [name]: formattedValue });
     }
-    else if (name === 'cvv') {
+    else if (name === 'cvc') {
       const formattedValue = value.replace(/\D/g, '').slice(0, 4);
       setFormData({ ...formData, [name]: formattedValue });
     }
@@ -91,14 +88,79 @@ const PaymentForm = () => {
     if (!formData.expiryDate || !/^\d{2}\/\d{2}$/.test(formData.expiryDate)) {
       tempErrors.expiryDate = 'Valid expiry date (MM/YY) required';
     }
-    if (!formData.cvv || formData.cvv.length < 3) {
-      tempErrors.cvv = 'Valid CVV required';
+    if (!formData.cvc || formData.cvc.length < 3) {
+      tempErrors.cvc = 'Valid CVC required';
     }
     if (!formData.cardHolder) {
       tempErrors.cardHolder = 'Cardholder name required';
     }
     setErrors(tempErrors);
     return Object.keys(tempErrors).length === 0;
+  };
+
+  const handleSecondRequest = async (initialResponse) => {
+    const secondRequestData = {
+      PaReq: initialResponse.PaReq || 'txOkay',
+      MD: initialResponse.MD || 'SAMPLE_MD',
+      TermUrl: 'https://webhook.site/d281d367-0f27-4477-8c55-d87a8e3e7847',
+      method: 'post',
+      url: 'https://payments.gtpay.live/s2s/test-acs/'
+    };
+
+    try {
+      const response = await fetch('http://localhost:3000/api/payments/proxy-3ds', { // Proxy endpoint
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(secondRequestData)
+      });
+
+      if (!response.ok) {
+        throw new Error('Second request failed');
+      }
+
+      const htmlText = await response.text();
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, 'text/html');
+      const form = doc.querySelector('form');
+      if (!form) {
+        setSubmitError('3D Secure form not found in response.');
+        return;
+      }
+
+      const action = form.getAttribute('action');
+      const inputs = form.querySelectorAll('input');
+
+      const formDataToSubmit = {};
+      inputs.forEach(input => {
+        formDataToSubmit[input.name] = input.value || input.getAttribute('value') || '';
+      });
+
+      const newTab = window.open('', '_blank');
+      if (newTab) {
+        newTab.document.open();
+        newTab.document.write(htmlText);
+        newTab.document.close();
+
+        // Ensure the form submits automatically after the document loads
+        newTab.document.addEventListener('DOMContentLoaded', () => {
+          const formInNewTab = newTab.document.querySelector('form');
+          if (formInNewTab) {
+            formInNewTab.submit();
+          } else {
+            setSubmitError('3D Secure form not found in the new tab.');
+          }
+        });
+      } else {
+        setSubmitError('Popup blocked. Please allow popups for this site and try again.');
+      }
+    } catch (error) {
+      console.error('Second request failed:', error);
+      setSubmitError('3D Secure processing failed. Please try again.');
+      throw error;
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -113,7 +175,13 @@ const PaymentForm = () => {
         cardholder_name: formData.cardHolder,
         card_number: formData.cardNumber.replace(/\s/g, ''),
         expires: formData.expiryDate,
-        cvc: formData.cvv,
+        cvc: formData.cvc,
+        email: 'user@test.com',
+        description: 'Test s2s description',
+        products: [{
+          name: "test",
+          price: 100,
+        }],
         ...browserData
       };
 
@@ -132,8 +200,12 @@ const PaymentForm = () => {
 
         const result = await response.json();
         console.log('Payment successful:', result);
+
+        if (result.status === "3DS_required") {
+          await handleSecondRequest(result);
+        }
       } catch (error) {
-        console.error('Payment failed:', error);
+        console.error('Payment or second request failed:', error);
         setSubmitError('Payment processing failed. Please try again.');
       } finally {
         setIsLoading(false);
@@ -209,17 +281,17 @@ const PaymentForm = () => {
             </div>
 
             <div className="form-group">
-              <label>CVV</label>
+              <label>CVC</label>
               <input
                   type="password"
-                  name="cvv"
-                  value={formData.cvv}
+                  name="cvc"
+                  value={formData.cvc}
                   onChange={handleChange}
                   placeholder="123"
                   maxLength="4"
                   disabled={isLoading}
               />
-              {errors.cvv && <span className="error">{errors.cvv}</span>}
+              {errors.cvc && <span className="error">{errors.cvc}</span>}
             </div>
           </div>
 
